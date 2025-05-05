@@ -1,13 +1,92 @@
-// Ensure at the top after requiring dotenv:
-require('dotenv').config();
+// Import required modules
+const express = require('express');
+const cors = require('cors');
+const { MongoClient, ObjectId } = require('mongodb');
+const bodyParser = require('body-parser');
+const axios = require('axios');
+require('dotenv').config(); // Load environment variables from .env file
 
-// Then in the API handler route:
+// Initialize Express app
+const app = express();
+const port = process.env.PORT || 3000;
 
+// Middleware
+app.use(cors());
+app.use(bodyParser.json());
+
+// MongoDB setup
+const mongoUrl = process.env.MONGODB_URI || 'mongodb://localhost:27017';
+const dbName = 'ai_assistant_db';
+
+let db, tasksCollection;
+
+MongoClient.connect(mongoUrl, { useUnifiedTopology: true })
+  .then(client => {
+    db = client.db(dbName);
+    tasksCollection = db.collection('tasks');
+    console.log('Connected to MongoDB');
+  })
+  .catch(err => {
+    console.error('MongoDB connection error:', err);
+  });
+
+// API Keys from environment variables
 const OPENWEATHER_API_KEY = process.env.OPENWEATHER_API_KEY;
 const UNSPLASH_ACCESS_KEY = process.env.UNSPLASH_ACCESS_KEY;
 const NEWS_API_KEY = process.env.NEWS_API_KEY;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
+// Routes
+
+// Get tasks for today (filter by date)
+app.get('/api/tasks/today', async (req, res) => {
+  try {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(todayStart);
+    todayEnd.setDate(todayEnd.getDate() + 1);
+    const tasks = await tasksCollection.find({
+      createdAt: {
+        $gte: todayStart,
+        $lt: todayEnd
+      }
+    }).toArray();
+    res.json(tasks);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch tasks.' });
+  }
+});
+
+// Add new task
+app.post('/api/tasks', async (req, res) => {
+  try {
+    const { title, time } = req.body;
+    if (!title || !time) return res.status(400).json({ error: 'Task title and time required' });
+    const now = new Date();
+    const result = await tasksCollection.insertOne({
+      title,
+      time,
+      createdAt: now,
+    });
+    res.json({ success: true, taskId: result.insertedId });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to add task.' });
+  }
+});
+
+// Delete task
+app.delete('/api/tasks/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'Invalid id' });
+    await tasksCollection.deleteOne({ _id: new ObjectId(id) });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete task.' });
+  }
+});
+
+// Query handler - process user query for multiple domains
 app.post('/api/query', async (req, res) => {
   const { query } = req.body;
   if (!query) return res.status(400).json({ error: 'Query is required' });
@@ -35,58 +114,4 @@ app.post('/api/query', async (req, res) => {
     }
 
     // Image intent
-    if (lowerQuery.includes('show me') || lowerQuery.includes('image') || lowerQuery.includes('picture')) {
-      if (!UNSPLASH_ACCESS_KEY) return res.json({ text: 'Image API key not configured.' });
-
-      const unsplashQuery = query.replace(/show me|image|picture/gi, '').trim() || 'nature';
-
-      const imageResp = await axios.get(
-        `https://api.unsplash.com/photos/random?query=${encodeURIComponent(unsplashQuery)}&client_id=${UNSPLASH_ACCESS_KEY}`
-      );
-
-      const imageUrl = imageResp.data.urls.small;
-
-      return res.json({ text: `Here is an image for "${unsplashQuery}":`, imageUrl });
-    }
-
-    // News intent
-    if (lowerQuery.includes('news')) {
-      if (!NEWS_API_KEY) return res.json({ text: 'News API key not configured.' });
-
-      const newsUrl = `https://newsapi.org/v2/top-headlines?country=us&apiKey=${NEWS_API_KEY}&pageSize=3`;
-
-      const newsResp = await axios.get(newsUrl);
-
-      const articles = newsResp.data.articles.map((a) => `- ${a.title}`).join('\n');
-
-      return res.json({ text: `Latest news headlines:\n${articles}` });
-    }
-
-    // Add task intent and other logic here...
-
-    // Default: use Gemini API if configured
-    if (!GEMINI_API_KEY) return res.json({ text: 'I do not understand that yet, and Gemini API key is not configured.' });
-
-    // Replace the following with your actual Gemini API endpoint and request format
-    const geminiResponse = await axios.post(
-      'https://gemini.googleapis.com/v1/models/text-bison-001:predict',
-      {
-        instances: [{ content: query }],
-        parameters: { temperature: 0.7, maxOutputTokens: 256 },
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${GEMINI_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-
-    const aiText = geminiResponse.data.predictions?.[0]?.content || 'Sorry, no response from Gemini AI.';
-
-    return res.json({ text: aiText });
-  } catch (err) {
-    console.error('Query error:', err.response?.data || err.message || err);
-    res.status(500).json({ error: 'Internal server error processing query.' });
-  }
-});
+    
