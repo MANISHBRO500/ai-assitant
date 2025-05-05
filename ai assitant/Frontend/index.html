@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>AI Assistant</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin:0;
+    font-family: 'Inter', sans-serif;
+    background: #121212;
+    color: #eee;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    max-width: 400px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  header {
+    padding: 1rem;
+    width: 100%;
+    text-align: center;
+    background: #1f1f1f;
+    font-weight: 600;
+    letter-spacing: 2px;
+    font-size: 1.5rem;
+  }
+  #time-date {
+    margin-top: 1rem;
+    text-align: center;
+    font-size: 1.1rem;
+  }
+  #display {
+    margin-top: 1rem;
+    min-height: 180px;
+    width: 100%;
+    background: #222;
+    border-radius: 12px;
+    padding: 1rem;
+    overflow-y: auto;
+    font-size: 0.9rem;
+    line-height: 1.3;
+  }
+  #task-list {
+    margin-top: 1rem;
+    background: #222;
+    width: 100%;
+    border-radius: 12px;
+    max-height: 180px;
+    overflow-y: auto;
+    padding: 0.75rem 1rem;
+  }
+  #task-list h2 {
+    margin: 0 0 0.5rem 0;
+    font-weight: 600;
+  }
+  .task-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0;
+    border-bottom: 1px solid #444;
+  }
+  .task-item:last-child {
+    border-bottom: none;
+  }
+  button {
+    background: #6200ee;
+    border: none;
+    color: white;
+    padding: 0.3rem 0.7rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.85rem;
+    transition: background-color 0.3s ease;
+  }
+  button:hover {
+    background: #7e3ff2;
+  }
+  #input-area {
+    margin-top: 0.8rem;
+    width: 100%;
+    display: flex;
+    gap: 0.5rem;
+  }
+  #text-input {
+    flex-grow: 1;
+    padding: 0.5rem 0.8rem;
+    font-size: 1rem;
+    border-radius: 12px;
+    border: none;
+    outline: none;
+  }
+  #voice-button {
+    background: #03dac6;
+    border: none;
+    border-radius: 50%;
+    width: 44px;
+    height: 44px;
+    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: background-color 0.3s;
+  }
+  #voice-button.recording {
+    background: #ff1744;
+  }
+  #voice-button svg {
+    fill: #121212;
+    width: 24px;
+    height: 24px;
+  }
+  #wake-status {
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    color: #bb86fc;
+    height: 18px;
+    text-align: center;
+    min-height: 18px;
+  }
+  .response-item {
+    margin-top: 1rem;
+    background: #1f1f1f;
+    border-radius: 10px;
+    padding: 0.8rem 1rem;
+  }
+  .response-title {
+    font-weight: 700;
+    margin-bottom: 0.3rem;
+    color: #bb86fc;
+  }
+  img.response-img {
+    max-width: 100%;
+    border-radius: 10px;
+    margin-top: 0.5rem;
+  }
+  @media (max-width: 400px) {
+    body {
+      max-width: 100vw;
+      padding: 0 0.5rem;
+    }
+  }
+</style>
+</head>
+<body>
+<header>Hey Assistant</header>
+<div id="time-date" aria-live="polite"></div>
+
+<div id="display" role="region" aria-live="polite" aria-atomic="true" tabindex="0">
+  <div>Welcome! Say "Hey Assistant" or type your query below.</div>
+</div>
+
+<div id="task-list" aria-label="Today's tasks">
+  <h2>Today's Tasks</h2>
+  <ul id="tasks-ul" style="list-style:none; padding-left:0; margin:0;"></ul>
+</div>
+
+<div id="input-area">
+  <input type="text" id="text-input" aria-label="Type your query here" placeholder="Type your query..." />
+  <button id="voice-button" aria-label="Start voice input" title="Start voice input">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 14 0h-2zm-5 6v3h2v-3h-2z"/></svg>
+  </button>
+</div>
+<div id="wake-status" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  const displayEl = document.getElementById('display');
+  const tasksUl = document.getElementById('tasks-ul');
+  const timeDateEl = document.getElementById('time-date');
+  const voiceButton = document.getElementById('voice-button');
+  const textInput = document.getElementById('text-input');
+  const wakeStatus = document.getElementById('wake-status');
+
+  let isListening = false;
+  let recognition;
+  let sessionActive = false;
+  let wakeWordDetected = false;
+  let speaking = false;
+  let reminderInterval;
+
+  // MongoDB tasks API URL (assume backend at localhost:3000)
+  const API_BASE = 'http://localhost:3000/api';
+
+  // Speech synthesis
+  function speak(text) {
+    if (!window.speechSynthesis) return;
+    if (speaking) window.speechSynthesis.cancel();
+    speaking = true;
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'en-US';
+    utterance.onend = () => { speaking = false; };
+    window.speechSynthesis.speak(utterance);
+  }
+
+  // Update time/date display every second
+  function updateTimeDate() {
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+    const dateStr = now.toLocaleDateString([], {weekday: 'long', month: 'long', day: 'numeric'});
+    timeDateEl.textContent = `${timeStr} - ${dateStr}`;
+  }
+  setInterval(updateTimeDate, 1000);
+  updateTimeDate();
+
+  // Fetch today's tasks
+  async function fetchTasks() {
+    try {
+      const response = await fetch(`${API_BASE}/tasks/today`);
+      const tasks = await response.json();
+      displayTasks(tasks);
+    } catch (e) {
+      console.error('Error fetching tasks:', e);
+    }
+  }
+
+  // Display tasks in task list
+  function displayTasks(tasks) {
+    tasksUl.innerHTML = '';
+    if (tasks.length === 0) {
+      tasksUl.innerHTML = '<li>No tasks for today.</li>';
+      return;
+    }
+    tasks.forEach(task => {
+      const li = document.createElement('li');
+      li.className = 'task-item';
+      li.textContent = `${task.title} at ${task.time}`;
+      const delBtn = document.createElement('button');
+      delBtn.textContent = 'Delete';
+      delBtn.setAttribute('aria-label', `Delete task ${task.title}`);
+      delBtn.onclick = async () => {
+        await deleteTask(task._id);
+        await fetchTasks();
+      };
+      li.appendChild(delBtn);
+      tasksUl.appendChild(li);
+    });
+  }
+
+  // Add new task via backend
+  async function addTask(title, time) {
+    try {
+      const resp = await fetch(`${API_BASE}/tasks`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({title, time}),
+      });
+      const result = await resp.json();
+      return result;
+    } catch (e) {
+      console.error('Add task error:', e);
+    }
+  }
+
+  // Delete task via backend
+  async function deleteTask(id) {
+    try {
+      await fetch(`${API_BASE}/tasks/${id}`, {method: 'DELETE'});
+    } catch (e) {
+      console.error('Delete task error:', e);
+    }
+  }
+
+  // Reminder check every 30 seconds
+  function setupReminderChecker() {
+    if (reminderInterval) clearInterval(reminderInterval);
+    reminderInterval = setInterval(async () => {
+      try {
+        const resp = await fetch(`${API_BASE}/tasks/today`);
+        const tasks = await resp.json();
+        const now = new Date();
+        tasks.forEach(task => {
+          // Reminder 10 minutes before task time
+          const taskTimeParts = task.time.split(':');
+          if (taskTimeParts.length !== 2) return;
+          const taskDateTime = new Date();
+          taskDateTime.setHours(parseInt(taskTimeParts[0],10));
+          taskDateTime.setMinutes(parseInt(taskTimeParts[1],10));
+          taskDateTime.setSeconds(0);
+          const diffMs = taskDateTime - now;
+          if (diffMs > 0 && diffMs <= 10 * 60 * 1000 && !task._reminded) {
+            // Mark as reminded locally
+            task._reminded = true;
+            showReminder(task.title);
+          }
+        });
+      } catch(err) { }
+    }, 30000);
+  }
+
+  // Show visual reminder and speak alert
+  function showReminder(title) {
+    const reminderDiv = document.createElement('div');
+    reminderDiv.style.position = 'fixed';
+    reminderDiv.style.bottom = '16px';
+    reminderDiv.style.left = '50%';
+    reminderDiv.style.transform = 'translateX(-50%)';
+    reminderDiv.style.background = '#bb86fc';
+    reminderDiv.style.color = '#121212';
+    reminderDiv.style.padding = '12px 20px';
+    reminderDiv.style.borderRadius = '24px';
+    reminderDiv.style.fontWeight = '700';
+    reminderDiv.style.zIndex = 9999;
+    reminderDiv.textContent = `Reminder: ${title} in 10 minutes!`;
+    document.body.appendChild(reminderDiv);
+    speak(`Reminder: ${title} in 10 minutes.`);
+    setTimeout(() => {
+      reminderDiv.remove();
+    }, 10000);
+  }
+
+  // Display assistant response on screen
+  function displayResponse(title, content, imageUrl=null) {
+    const respDiv = document.createElement('div');
+    respDiv.className = 'response-item';
+    const titleEl = document.createElement('div');
+    titleEl.className = 'response-title';
+    titleEl.textContent = title;
+    respDiv.appendChild(titleEl);
+    const contentEl = document.createElement('div');
+    if (typeof content === 'string') {
+      contentEl.textContent = content;
+    } else if (content instanceof HTMLElement) {
+      contentEl.appendChild(content);
+    }
+    respDiv.appendChild(contentEl);
+    if (imageUrl) {
+      const img = document.createElement('img');
+      img.className = 'response-img';
+      img.src = imageUrl;
+      img.alt = title;
+      respDiv.appendChild(img);
+    }
+    displayEl.appendChild(respDiv);
+    displayEl.scrollTop = displayEl.scrollHeight;
+  }
+
+  // Handle API query forwarding
+  async function queryAssistant(query) {
+    if (!query.trim()) return;
+    displayResponse('You', query);
+    try {
+      const resp = await fetch(`${API_BASE}/query`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({query}),
+      });
+      const data = await resp.json();
+      if (data.error) {
+        displayResponse('Assistant', 'Sorry, I could not process that.');
+        speak('Sorry, I could not process that.');
+        return;
+      }
+      // Show answer(s)
+      if (data.text) {
+        displayResponse('Assistant', data.text);
+        speak(data.text);
+      }
+      if (data.imageUrl) {
+        displayResponse('Assistant', '', data.imageUrl);
+      }
+      if (data.tasksUpdated) {
+        await fetchTasks();
+      }
+    } catch (e) {
+      console.error('Assistant query error:', e);
+      displayResponse('Assistant', 'Error contacting backend.');
+      speak('There was an error contacting the backend.');
+    }
+  }
+
+  // Wake word detection: approximate by listening for "hey assistant" first before main command
+  // Using Web Speech API on continuous mode, but to simplify here we trigger via button or manual text input
+
+  // Voice recognition setup
+  if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.onstart = () => {
+      isListening = true;
+      voiceButton.classList.add('recording');
+      wakeStatus.textContent = 'Listening...';
+    };
+    recognition.onend = () => {
+      isListening = false;
+      voiceButton.classList.remove('recording');
+      wakeStatus.textContent = '';
+    };
+    recognition.onerror = (event) => {
+      console.error('SpeechRecognition error', event.error);
+      wakeStatus.textContent = 'Error: ' + event.error;
+      isListening = false;
+      voiceButton.classList.remove('recording');
+    };
+    recognition.onresult = (event) => {
+      const spokenText = event.results[0][0].transcript.toLowerCase().trim();
+      wakeStatus.textContent = `Heard: "${spokenText}"`;
+      if (!sessionActive) {
+        // Look for wake word "hey assistant"
+        if (spokenText.includes('hey assistant')) {
+          sessionActive = true;
+          displayResponse('Assistant', 'Yes, I am listening. You can speak now.');
+          speak('Yes, I am listening. You can speak now.');
+          setTimeout(() => {
+            recognition.start();
+          }, 1000);
+        } else {
+          displayResponse('Assistant', 'Waiting for wake word "Hey Assistant".');
+        }
+      } else {
+        // Session active: check for "I am done"
+        if (spokenText.includes('i am done')) {
+          displayResponse('Assistant', 'Goodbye!');
+          speak('Goodbye!');
+          sessionActive = false;
+          wakeStatus.textContent = '';
+          return;
+        }
+        // Process query
+        queryAssistant(spokenText);
+      }
+    };
+  } else {
+    wakeStatus.textContent = 'Speech recognition not supported in this browser.';
+  }
+
+  // Voice button toggle
+  voiceButton.addEventListener('click', () => {
+    if (isListening) {
+      recognition.stop();
+      isListening = false;
+    } else {
+      recognition.start();
+    }
+  });
+
+  // Text input submit on Enter
+  textInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const query = textInput.value.trim();
+      if (!query) return;
+      textInput.value = '';
+      queryAssistant(query);
+    }
+  });
+
+  // Initial load
+  fetchTasks();
+  setupReminderChecker();
+
+})();
+</script>
+</body>
+</html>
+
