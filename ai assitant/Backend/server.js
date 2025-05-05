@@ -38,7 +38,7 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 // Routes
 
-// Get tasks for today (filter by date)
+// Get tasks for today
 app.get('/api/tasks/today', async (req, res) => {
   try {
     const todayStart = new Date();
@@ -86,7 +86,7 @@ app.delete('/api/tasks/:id', async (req, res) => {
   }
 });
 
-// Query handler - process user query for multiple domains
+// Query handler
 app.post('/api/query', async (req, res) => {
   const { query } = req.body;
   if (!query) return res.status(400).json({ error: 'Query is required' });
@@ -114,4 +114,49 @@ app.post('/api/query', async (req, res) => {
     }
 
     // Image intent
-    
+    if (lowerQuery.includes('image') || lowerQuery.includes('photo') || lowerQuery.includes('picture')) {
+      if (!UNSPLASH_ACCESS_KEY) {
+        return res.json({ text: 'Image API key not configured.' });
+      }
+
+      const imageQuery = query.replace(/(show me|image|photo|picture) of /i, '').trim();
+      const unsplashUrl = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(imageQuery)}&client_id=${UNSPLASH_ACCESS_KEY}`;
+
+      const imageResp = await axios.get(unsplashUrl);
+      const results = imageResp.data.results;
+
+      if (results.length > 0) {
+        const imageUrl = results[0].urls.regular;
+        return res.json({ image: imageUrl });
+      } else {
+        return res.json({ text: 'No image found for your query.' });
+      }
+    }
+
+    // News intent
+    if (lowerQuery.includes('news')) {
+      if (!NEWS_API_KEY) {
+        return res.json({ text: 'News API key not configured.' });
+      }
+
+      const newsUrl = `https://newsapi.org/v2/top-headlines?country=in&apiKey=${NEWS_API_KEY}`;
+      const newsResp = await axios.get(newsUrl);
+      const articles = newsResp.data.articles.slice(0, 3);
+
+      const headlines = articles.map((a, i) => `${i + 1}. ${a.title}`).join('\n');
+      return res.json({ text: `Top news headlines:\n${headlines}` });
+    }
+
+    // Fallback
+    return res.json({ text: `Sorry, I couldn't understand your query.` });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Something went wrong while processing the query.' });
+  }
+});
+
+// Start the server
+app.listen(port, () => {
+  console.log(`Server is running on port ${port}`);
+});
