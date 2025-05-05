@@ -31,7 +31,7 @@ MongoClient.connect(mongoUrl, {useUnifiedTopology:true})
 const OPENWEATHER_API_KEY = process.env.OPENWEATHER_API_KEY;
 const UNSPLASH_ACCESS_KEY = process.env.UNSPLASH_ACCESS_KEY;
 const NEWS_API_KEY = process.env.NEWS_API_KEY;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 // Routes
 
@@ -98,11 +98,11 @@ app.post('/api/query', async (req, res) => {
       const cityMatch = query.match(/in ([a-zA-Z ]+)/i);
       const city = cityMatch ? cityMatch[1] : 'New York';
       if (!OPENWEATHER_API_KEY) return res.json({text: 'Weather API key not configured.'});
-      const weatherResp = await axios.get(`https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&appid=${OPENWEATHER_API_KEY}&units=metric`);
+      const weatherResp = await axios.get(\`https://api.openweathermap.org/data/2.5/weather?q=\${encodeURIComponent(city)}&appid=\${OPENWEATHER_API_KEY}&units=metric\`);
       const w = weatherResp.data;
       const description = w.weather[0].description;
       const temp = w.main.temp;
-      const reply = `Current weather in ${city}: ${description}, temperature is ${temp}°C.`;
+      const reply = \`Current weather in \${city}: \${description}, temperature is \${temp}°C.\`;
       return res.json({text: reply});
     }
     
@@ -111,56 +111,56 @@ app.post('/api/query', async (req, res) => {
       if (!UNSPLASH_ACCESS_KEY) return res.json({text: 'Image API key not configured.'});
       // extract query for unsplash
       const unsplashQuery = query.replace(/show me|image|picture/gi, '').trim() || 'nature';
-      const imageResp = await axios.get(`https://api.unsplash.com/photos/random?query=${encodeURIComponent(unsplashQuery)}&client_id=${UNSPLASH_ACCESS_KEY}`);
+      const imageResp = await axios.get(\`https://api.unsplash.com/photos/random?query=\${encodeURIComponent(unsplashQuery)}&client_id=\${UNSPLASH_ACCESS_KEY}\`);
       const imageUrl = imageResp.data.urls.small;
-      return res.json({text: `Here is an image for "${unsplashQuery}":`, imageUrl});
+      return res.json({text: \`Here is an image for "\${unsplashQuery}":\`, imageUrl});
     }
 
     // News intent
     if (lowerQuery.includes('news')) {
       if (!NEWS_API_KEY) return res.json({text: 'News API key not configured.'});
-      const newsResp = await axios.get(`https://newsapi.org/v2/top-headlines?country=us&apiKey=${NEWS_API_KEY}&pageSize=3`);
-      const articles = newsResp.data.articles.map(a => `- ${a.title}`).join('\n');
-      return res.json({text: `Latest news headlines:\n${articles}`});
+      const newsResp = await axios.get(\`https://newsapi.org/v2/top-headlines?country=us&apiKey=\${NEWS_API_KEY}&pageSize=3\`);
+      const articles = newsResp.data.articles.map(a => \`- \${a.title}\`).join('\\n');
+      return res.json({text: \`Latest news headlines:\\n\${articles}\`});
     }
     
     // Scheduling: Add task intent
     if (lowerQuery.startsWith('add task')) {
       // parse like "add task to buy groceries at 17:00"
-      const matches = query.match(/add task (.+) at (\d{1,2}:\d{2})/i);
+      const matches = query.match(/add task (.+) at (\\d{1,2}:\\d{2})/i);
       if (matches) {
         const taskTitle = matches[1].trim();
         const taskTime = matches[2];
         const now = new Date();
         await tasksCollection.insertOne({title: taskTitle, time: taskTime, createdAt: now});
-        return res.json({text: `Task "${taskTitle}" added for ${taskTime}.`, tasksUpdated: true});
+        return res.json({text: \`Task "\${taskTitle}" added for \${taskTime}.\`, tasksUpdated: true});
       }
       return res.json({text: 'Please specify task and time like: "Add task buy groceries at 17:00".'});
     }
 
-    // Default: use OpenAI API for general questions (if configured)
-    if (!OPENAI_API_KEY) return res.json({text: 'I do not understand that yet, and OpenAI API key is not configured.'});
-    const openaiResp = await axios({
-      method: 'post',
-      url: 'https://api.openai.com/v1/chat/completions',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`
+    // Default: use Google Gemini API for general questions (if configured)
+    if (!GEMINI_API_KEY) return res.json({text: 'I do not understand that yet, and Gemini API key is not configured.'});
+
+    // Example Gemini API call (replace URL and body according to Gemini API docs)
+    const geminiResponse = await axios.post(
+      'https://gemini.googleapis.com/v1/models/text-bison-001:predict', // Example endpoint - replace with real
+      {
+        instances: [{ content: query }],
+        parameters: { temperature: 0.7, maxOutputTokens: 256 }
       },
-      data: {
-        model: 'gpt-3.5-turbo',
-        messages: [
-          {role: 'system', content: 'You are a helpful assistant.'},
-          {role: 'user', content: query},
-        ],
-        max_tokens: 256,
+      {
+        headers: {
+          'Authorization': \`Bearer \${GEMINI_API_KEY}\`,
+          'Content-Type': 'application/json',
+        },
       }
-    });
-    const aiText = openaiResp.data.choices[0].message.content.trim();
-    res.json({text: aiText});
-    
+    );
+
+    const aiText = geminiResponse.data.predictions?.[0]?.content || 'Sorry, no response from Gemini AI.';
+    res.json({ text: aiText });
+
   } catch(err) {
-    console.error('Query error:', err);
+    console.error('Query error:', err.response?.data || err.message || err);
     res.status(500).json({error: 'Internal server error processing query.'});
   }
 
@@ -172,5 +172,5 @@ app.get('/', (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`Server running at http://localhost:${port}`);
+  console.log(\`Server running at http://localhost:\${port}\`);
 });
